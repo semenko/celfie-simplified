@@ -5,7 +5,6 @@ import heapq
 from collections import defaultdict
 import sys
 
-
 def distance(values):
     """
     calculates the absolute difference between the tissue methylation

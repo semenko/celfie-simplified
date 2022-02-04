@@ -2,12 +2,9 @@
 
 import argparse
 import os
-import sys
 
-import bottleneck as bn  # substantially speeds up calculations with nan's
 import numpy as np
 import pandas as pd
-import pickle as pkl  # to save output
 
 np.seterr(divide="ignore", invalid="ignore")
 

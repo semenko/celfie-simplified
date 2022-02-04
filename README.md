@@ -1,49 +1,24 @@
 
-# CelFiE
-
-[![DOI](https://zenodo.org/badge/217374131.svg)](https://zenodo.org/badge/latestdoi/217374131)
-
-
-## Overview
-CelFiE (CELl Free dna decomposItion Expectation maximization) is an expectation maximization algorithm that takes as input, a reference panel and cell-free DNA methylation of several individuals. From this data, CelFiE will estimate the contribution of the reference tissues to the cfDNA of each individual, along with an arbitrary number of missing tissues not contained in the reference data.
-
-For more details, please see our paper. 
+# CelFiE — Refactored
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/semenko/celfie-simplified/blob/master/notebooks/celfie-simplified-demo.ipynb)
 
 
-## Installation
+**By Nick Semenkovich \<semenko@alum.mit.edu\>**
 
-To install CelFiE, clone or fork this repository:
+<br>
 
-`git clone https://github.com/christacaggiano/celfie.git`.
+An opinionated rework of the CelFiE project, original repository [here](https://github.com/christacaggiano/celfie).
 
-All required packages can be installed using [Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) using the environment file specified in `celfie_conda_env.yml`. Run:
+The goal of this code is to determine fractional tisuses in a population of cells, from cell free methylation data. This adapts the CelFiE code to take standard inputs (.bed), and guts a lot of code. 
 
-`conda env create -f celfie_conda_env.yml -n celfie_env`
+This only implements CelFiE's EM algorithm and the tissue informative marker (TIM) generation.
 
-CelFiE was developed in Python 3.7.
-
-## TL;DR Running CelFiE
-
-To run CelFiE:
-
-```bash
-python scripts/celfie.py <input_path> <output_directory> <num_samples> <--max_iterations> <--unknowns> <--parallel_job_id <--convergence> <--random_restarts>
-```
-For a detailed description of the parameters, see below. To run a test run of CelFiE with the default parameters run: 
-```bash
-python scripts/celfie.py celfie_demo/sample_data.txt celfie_demo/sample_output 15 
-```
+# Usage
 
 
-#### CelFiE demo
+This repo can be run entirely in Google Colab: [celfie-simplified-demo.ipynb](https://colab.research.google.com/github/semenko/celfie-simplified/blob/master/notebooks/celfie-simplified-demo.ipynb)
 
-Sample data is provided in `celfie_demo/`, along with a sample Jupyter Notebook for analyzing the output `demo.ipynb`. 
-
-
-
-## Details of Running CelFiE
-
-### Preparing Data
+## Input Data Format
 
 CelFiE expects the methylation data to be in the form # of methylated reads, # of total reads. For example it could look like:
 
@@ -53,6 +28,8 @@ chr1	10	11	44.0	63.0
 chr1	50	51	71.0	133.0
 chr1	60	61	89.0	115.0
 ```
+
+## TIM Matrix Format
 
 CelFiE should work, in theory, on Illumina Chip data, if you estimate the read depth of each of the sites. However, we do not officially recommend this.
 
@@ -66,49 +43,6 @@ chr1	50	51	71.0	133.0 chr1	50	51	85.0	99.0
 chr1	60	61	89.0	115.0 chr1	60	61	92.0	117.0
 ```
 
-
-## Code
-
-### EM Script
-
-After preparing data as above, you can run EM script as follows:
-
-```bash
-python scripts/celfie.py <input_path> <output_directory> <num_samples> <--max_iterations> <--unknowns> <--parallel_job_id <--convergence> <--random_restarts>
-```
-
-CelFiE takes several parameters. `Input_path`, `output_directory,` and `num_samples` are the only mandatory parameters. 
-
-```bash
-usage: em.py [-h] [-m MAX_ITERATIONS] [-u UNKNOWNS] [-p PARALLEL_JOB_ID]
-             [-c CONVERGENCE] [-r RANDOM_RESTARTS]
-             input_path output_directory num_samples
-
-CelFiE - Cell-free DNA decomposition. CelFie estimated the cell type of origin
-proportions of a cell-free DNA sample.
-
-positional arguments:
-  input_path            The path to the input file
-  output_directory      The path to the output directory
-  num_samples           Number of cfdna samples
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -m MAX_ITERATIONS, --max_iterations MAX_ITERATIONS
-                        How long the EM should iterate before stopping, unless
-                        convergence criteria is met. Default 1000.
-  -u UNKNOWNS, --unknowns UNKNOWNS
-                        Number of unknown categories to be estimated along
-                        with the reference data. Default 1. Can be increased to 2+ for large samples. 
-  -p PARALLEL_JOB_ID, --parallel_job_id PARALLEL_JOB_ID
-                        Replicate number in a simulation experiment. Default
-                        1.
-  -c CONVERGENCE, --convergence CONVERGENCE
-                        Convergence criteria for EM. Default 0.001.
-  -r RANDOM_RESTARTS, --random_restarts RANDOM_RESTARTS
-                        CelFiE will perform several random restarts and select
-                        the one with the highest log-likelihood. Default 10.
-```
 
 ### Output
 
@@ -131,21 +65,7 @@ CpG2  0.45 0.88 ... 0.1
 
 Sample code for processing both of these outputs can be seen in `demo.ipynb`.
 
-### L1 projection method
-
-We also developed a method to project estimates onto the L1 ball, based on Duchi et al 2008. The code for this method is available at `scripts/projection.py`. It can be ran as
-
-```python
-python projection.py <output_dir> <replicate> <number of tissues> <number of sites> <number of individuals> <input depth> <reference depth> <tissue_proportions.pkl>
-```
-
-Sample tissue proportions are included at `scripts/simulations/unknown_sim_0201_10people.pkl`.
-
 ## Tissue Informative Markers
-
-In our paper, we identified a set of tissue informative markers (TIMs). We claim that these are a good set of CpGs to use for decomposition.
-
-#### Pre-selected TIMs
 
 TIMs are available at `TIMs/sample_tims.txt` for individual CpG TIMs, and `TIMs/sample_tims_summed.txt` for reads summed +/-250bp around a TIM. We recommend using the `TIMs/sample_tims_summed.txt` for improved decomposition performance.
 
@@ -217,17 +137,6 @@ The pipeline can then be ran as
 ./tim.sh
 ```
 
-## Figures
-
-Jupyter notebooks to reproduce figures and statistical analyses for the final version of this manuscript can be found in `paper_figures` directory.
-
-## Acknowledgements
-
-Thanks to Arya Boudaie for help with writing and reviewing this code and to Antoine Passemiers for their tremendous help in speeding up the EM calculation.
-
-## Contact
-For any questions with this code, please contact christa@g.ucla.edu. I am happy to help and open to any suggestions. If you email me, though, please be nice, I'm trying my best :) 
-
 ## Citation
 
-Christa Caggiano, Barbara Celona, Fleur Garton, Joel Mefford, Brian Black, Catherine Lomen-Hoerth, Andrew Dahl, Noah Zaitlen, *"Comprehensive cell type decomposition of circulating cell-free DNA with CelFiE"*, Nature Communications, May 2021, [link](https://www.nature.com/articles/s41467-021-22901-x)
+Christa Caggiano, Barbara Celona, Fleur Garton, Joel Mefford, Brian Black, Catherine Lomen-Hoerth, Andrew Dahl, Noah Zaitlen, *"Comprehensive cell type decomposition of circulating cell-free DNA with CelFiE"*, Nature Communications, May 2021 [link](https://www.nature.com/articles/s41467-021-22901-x)
