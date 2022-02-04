@@ -1,15 +1,13 @@
 #!/usr/bin/env python
-
 import argparse
 import os
+import pybedtools
+import sys
 
 import numpy as np
 import pandas as pd
 
 np.seterr(divide="ignore", invalid="ignore")
-
-################  support functions   ################
-
 
 def add_pseudocounts(value, array, meth, meth_depths):
     """finds values of gamma where logll cannot be computed, adds pseudo-counts to make
@@ -25,22 +23,9 @@ def add_pseudocounts(value, array, meth, meth_depths):
         array == value  # find indices where value isn't able to be computed
     )
 
+    # TODO: Fix mutation of inputs
     meth[axis0, axis1] += 1  # add one read to methylated counts
     meth_depths[axis0, axis1] += 2  # adds two reads to total counts
-
-
-def check_gamma(array):
-    """checks for values of gamma where log likelihood cannot be computed, returns
-    true if can be computed
-
-    array: np array to check
-    """
-
-    return (0 in array) or (1 in array)
-
-
-########  expectation-maximization algorithm  ########
-
 
 def expectation(gamma, alpha):
     """calculates the components needed for loglikelihood for each iteration of gamma and alpha
@@ -61,7 +46,7 @@ def expectation(gamma, alpha):
     return p0, p1
 
 
-def log_likelihood(p0, p1, x_depths, x, y_depths, y, gamma, alpha):
+def compute_log_likelihood(p0, p1, x_depths, x, y_depths, y, gamma, alpha):
     """calculates the log likelihood P(X, Z, Y | alpha, gamma)
 
     p0: probability that read is methylated
@@ -86,16 +71,15 @@ def log_likelihood(p0, p1, x_depths, x, y_depths, y, gamma, alpha):
     x = x.T[np.newaxis, ...]
     x_depths = x_depths.T[np.newaxis, ...]
 
-    ll = 0
-    ll += np.sum((y + p1 * x) * np.log(gamma))
-    ll += np.sum((y_depths - y + p0 * (x_depths - x)) * np.log(1.0 - gamma))
-    ll += np.sum((p1 * x + (x_depths - x) * p0) * np.log(alpha))
+    log_likelihood = 0
+    log_likelihood += np.sum((y + p1 * x) * np.log(gamma))
+    log_likelihood += np.sum((y_depths - y + p0 * (x_depths - x)) * np.log(1.0 - gamma))
+    log_likelihood += np.sum((p1 * x + (x_depths - x) * p0) * np.log(alpha))
 
-    return ll
+    return log_likelihood
 
 
 def maximization(p0, p1, x, x_depths, y, y_depths):
-
     """maximizes log-likelihood, calculated in the expectation step
     calculates new alpha and gamma given these new parameters
 
@@ -134,8 +118,8 @@ def maximization(p0, p1, x, x_depths, y, y_depths):
 
     gamma = (term1 + y) / (term0 + term1 + y_depths)  # calculate new gamma
 
-    # check if gamma goes out of bounds, if so add psuedocounts to misbehaving y values
-    if check_gamma(gamma):
+    # check if gamma goes out of bounds, if so add psuedocounts to misbehaving y values.
+    if (0 in gamma) or (1 in gamma):
         add_pseudocounts(1, gamma, y, y_depths)
         add_pseudocounts(0, gamma, y, y_depths)
         gamma = (term1 + y) / (term0 + term1 + y_depths)  # recalculate gamma
@@ -145,10 +129,9 @@ def maximization(p0, p1, x, x_depths, y, y_depths):
     return normalized_new_alpha, gamma
 
 
-########################  run em  ########################
-
-
-def em(x, x_depths, y, y_depths, num_iterations, convergence_criteria):
+def expectation_maximization(
+    x, x_depths, y, y_depths, num_iterations, convergence_criteria
+):
     """take in the input cfdna matrices and the reference data and
     runs the EM for the specified number of iterations, or stops once the
     convergence_criteria is reached
@@ -173,7 +156,7 @@ def em(x, x_depths, y, y_depths, num_iterations, convergence_criteria):
     gamma = y / y_depths
 
     # perform EM for a given number of iterations
-    for i in range(num_iterations):
+    for _ in range(num_iterations):
 
         p0, p1 = expectation(gamma, alpha)
         a, g = maximization(p0, p1, x, x_depths, y, y_depths)
@@ -182,30 +165,25 @@ def em(x, x_depths, y, y_depths, num_iterations, convergence_criteria):
         alpha_diff = np.mean(abs(a - alpha)) / np.mean(abs(alpha))
         gamma_diff = np.mean(abs(g - gamma)) / np.mean(abs(gamma))
 
-        if (
-            alpha_diff + gamma_diff < convergence_criteria
-        ):  # if convergence criteria, break
+        if (alpha_diff + gamma_diff < convergence_criteria):  # if convergence criteria, break
             break
-
-        else:  # set current evaluation of alpha and gamma
+        else: 
+            # set current evaluation of alpha and gamma
             alpha = a
             gamma = g
 
-    ll = log_likelihood(
+    # print ll for random restarts
+    log_likelihood = compute_log_likelihood(
         p0, p1, x_depths, x, y_depths, y, gamma, alpha
-    )  # print ll for random restarts
+    )  
 
-    return alpha, gamma, ll
-
-
-################## read in data #######################
+    return alpha, gamma, log_likelihood
 
 
 def define_arrays(sample, num_samples, num_unk):
     """
     takes input data matrix- cfDNA and reference, and creates the arrays to run in EM. Adds
     specified number of unknowns to estimate
-
 
     sample: pandas dataframe of data (samples and reference). Assumes there is 3 columns (chrom, start, end)
     before the samples and before the reference
@@ -236,7 +214,6 @@ def define_arrays(sample, num_samples, num_unk):
 
 
 def parse_header_names(header):
-
     parsed_header = []
 
     for i in range(0, len(header), 2):
@@ -288,78 +265,72 @@ def write_output(output_file, output_matrix, header, index):
     output.to_csv(output_file, sep="\t", index=False)  # save as text file
 
 
-################## run #######################
+def main():
+    pass
 
 if __name__ == "__main__":
 
     # read command line input parameters
     parser = argparse.ArgumentParser(
-        description="CelFiE - Cell-free DNA decomposition. CelFie estimated the cell type of origin proportions of a cell-free DNA sample."
+        description="CelFiE - Cell-free DNA decomposition. CelFie estimates the cell type of origin proportions of a cell-free DNA sample."
     )
-    parser.add_argument("input_path", help="the path to the input file")
-    parser.add_argument("output_directory", help="the path to the output directory")
-    parser.add_argument("num_samples", type=int, help="Number of cfdna samples")
+    parser.add_argument("input_bed", help="Your unknown sample(s) .bed file.")
+    parser.add_argument("tim_matrix", help="Your pre-trained tissue informative marker (TIM) matrix .bed.")
+    parser.add_argument("output_prefix", help="An output directory and prefix for your output files.")
+
     parser.add_argument(
         "-m",
         "--max_iterations",
         default=1000,
         type=int,
-        help="How long the EM should iterate before stopping, unless convergence criteria is met. Default 1000.",
+        help="How long the EM should iterate before stopping, unless convergence criteria is met. Default: 1000.",
     )
     parser.add_argument(
         "-u",
         "--unknowns",
-        default=1,
+        default=0,
         type=int,
-        help="Number of unknown categories to be estimated along with the reference data. Default 1.",
-    )
-    parser.add_argument(
-        "-p",
-        "--parallel_job_id",
-        default=1,
-        type=int,
-        help="Replicate number in a simulation experiment. Default 1. ",
+        help="Number of unknown categories to be estimated along with the reference data. Default: 0.",
     )
     parser.add_argument(
         "-c",
         "--convergence",
         default=0.0001,
         type=float,
-        help="Convergence criteria for EM. Default 0.0001.",
+        help="Convergence criteria for EM. Default: 0.0001.",
     )
     parser.add_argument(
         "-r",
         "--random_restarts",
         default=10,
         type=int,
-        help="CelFiE will perform several random restarts and select the one with the highest log-likelihood. Default 10.",
+        help="Perform several random restarts and select the one with the highest log-likelihood. Default: 10.",
     )
+
+    # Print full usage if no flags given.
+    if len(sys.argv) < 2:
+        parser.print_usage()
+        sys.exit(1)
+
     args = parser.parse_args()
 
     # make output directory if it does not exist
-    if not os.path.exists(args.output_directory) and args.parallel_job_id == 1:
+    if not os.path.exists(args.output_directory):
         os.makedirs(args.output_directory)
-        print("made " + args.output_directory + "/")
-        print()
-    else:
-        print("writing to " + args.output_directory + "/")
+        print("Writing to: " + args.output_directory + "/")
 
-    data_df = pd.read_csv(
-        args.input_path, delimiter="\t"
-    )  # read input samples/reference data
 
-    print(f"finished reading {args.input_path}")
-    print()
+    print(f"Loading: {args.input_path}")
+    data_df = pd.read_csv(args.input_path, delimiter="\t")
 
     output_alpha_file = (
-        f"{args.output_directory}/{args.parallel_job_id}_tissue_proportions.txt"
+        f"{args.output_directory}/tissue_proportions.txt"
     )
     output_gamma_file = (
-        f"{args.output_directory}/{args.parallel_job_id}_methylation_proportions.txt"
+        f"{args.output_directory}/methylation_proportions.txt"
     )
 
-    print(f"beginning generation of {args.output_directory}")
-    print()
+    print(f"Starting computation...")
 
     # make input arrays and add the specified number of unknowns
     x, x_depths, y, y_depths = define_arrays(
@@ -373,7 +344,7 @@ if __name__ == "__main__":
     random_restarts = []
 
     for i in range(args.random_restarts):
-        alpha, gamma, ll = em(
+        alpha, gamma, ll = expectation_maximization(
             x, x_depths, y, y_depths, args.max_iterations, args.convergence
         )
         random_restarts.append((ll, alpha, gamma))
@@ -387,3 +358,4 @@ if __name__ == "__main__":
     write_output(
         output_gamma_file, gamma_max.T, tissues, list(range(len(gamma_max[1])))
     )
+    print("Done.")
