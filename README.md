@@ -7,46 +7,65 @@
 
 <br>
 
-An opinionated rework of the CelFiE project, original repository [here](https://github.com/christacaggiano/celfie).
+An opinionated rework of the CelFiE project (original repository [here](https://github.com/christacaggiano/celfie)). Note that this project simply reworks CelFiE to make it more Pythonic / reproducible and accept standard (.bed) inputs.
 
-The goal of this code is to determine fractional tisuses in a population of cells, from cell free methylation data. This adapts the CelFiE code to take standard inputs (.bed), and guts a lot of code. 
+The goal of this code is to predict fractional tissue abundance from a mixed population of cells, using cell free methylation data. You likely need to build your own reference matrix, detailed below, though the original is available for reference.
 
-This only implements CelFiE's EM algorithm and the tissue informative marker (TIM) generation.
-
-# Usage
+## Usage
 
 
 This repo can be run entirely in Google Colab: [celfie-simplified-demo.ipynb](https://colab.research.google.com/github/semenko/celfie-simplified/blob/master/notebooks/celfie-simplified-demo.ipynb)
 
-## Input Data Format
 
-CelFiE expects the methylation data to be in the form # of methylated reads, # of total reads. For example it could look like:
+Locally, you can run:
+```
+git clone https://github.com/semenko/celfie-simplified
+cd celfie-simplified
+
+pip3 install -r requirements.txt
+
+python3 celfie-simplified.py --input data/sample-neutrophil.bed --reference_tims data/caggiano_TIM_matrix.bed --unknowns 0 --output sample-output/sample-neutrophil
+```
+
+## Input Formats
+
+CelFiE expect two input files: your sample's methylation data (as a .bed) and the tissue informative marker (TIM) matrix.
+
+Your sample's data .bed should have columns 4 and 5 set to the **# of methylated reads** and # of total reads:
 
 ```
-CHR   START END METH DEPTH
-chr1	10	11	44.0	63.0
-chr1	50	51	71.0	133.0
-chr1	60	61	89.0	115.0
+# chr start end   Hepatocyte_meth Hepatocyte_depth
+chr1	10    11	44	63
+chr1	50    51	71	133
+chr1	60    61	89	115
+```
+
+**Note:** Your sample .bed does not need a header. If you do not provide one, samples will be named "sample1, sample2 …". If you provide one, it **must** start with #, and your sample names must be formatted as "Tissue_name_meth" and "Tissue_name_depth". You can include more than one tissue (e.g. columns 5 and 6 can be tissue2_meth and tissue2_depth).
+
+**Note**: Many analyses generate % methylation values — you can convert from percent to absolute counts awk:
+```
+XXXX
 ```
 
 ## TIM Matrix Format
 
-CelFiE should work, in theory, on Illumina Chip data, if you estimate the read depth of each of the sites. However, we do not officially recommend this.
-
-The input of CelFiE is a single txt file including both the reference data and the cfDNA, with a header indicating sample names (see `celfie_demo/sample_data.txt`). Essentially the file is the reference and cfDNA sample bed files combined. This data should look something like this:
-
+CelFiE expects tissue informative markers (TIMs) in a .bed file with a header the following format:
 
 ```
-CHROM START END SAMPLE1_METH SAMPLE1_DEPTH CHROM START END TISSUE1_METH TISSUE1_DEPTH
-chr1	10	11	44.0	63.0  chr1	10	11	25.0	29.0
-chr1	50	51	71.0	133.0 chr1	50	51	85.0	99.0
-chr1	60	61	89.0	115.0 chr1	60	61	92.0	117.0
+# chrom start  end      tissue1_meth      tissue1_depth     tissue2_meth      tissue2_depth
+chr1	10	11	25	29    53	105
+chr1	50	51	85	99    72	285
+chr1	60	61	92	117   12	33
 ```
 
+**Note:** Here, the .bed header is not optional, as CelFiE needs to have valid tissue names for assignments and subsequent plotting.
 
-### Output
+As a reference, you can use the TIM matrix from the [original CelFiE paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5270101/), which is in `data/caggiano_TIM_matrix.bed`, but this matrix has some caveats (see below).
 
-CelFiE will output the tissue estimates for each sample in your input - i.e. the proportion of each tissue in the reference making up the cfDNA sample. See `celfie_demo/sample_output/1_tissue_proportions.txt` for an example of this output.
+
+### Outputs
+
+Output formatting is unchanged from the original CelFiE code. CelFiE outputs tissue estimates for each sample in your input — - i.e. the proportion of each tissue in the reference making up the cfDNA sample. See `celfie_demo/sample_output/1_tissue_proportions.txt` for an example of this output.
 
 ```
         tissue1 tissue2 .... unknown
@@ -65,7 +84,14 @@ CpG2  0.45 0.88 ... 0.1
 
 Sample code for processing both of these outputs can be seen in `demo.ipynb`.
 
-## Tissue Informative Markers
+## Custom TIM Matrix Generation
+
+The original TIM matrix is in `data/ was trained on a combination of human hg38 data from ENCODE and Blueprint, as described in the original paper. It encompasses 19 human tissues:
+
+However, this matrix is ***
+
+
+
 
 TIMs are available at `TIMs/sample_tims.txt` for individual CpG TIMs, and `TIMs/sample_tims_summed.txt` for reads summed +/-250bp around a TIM. We recommend using the `TIMs/sample_tims_summed.txt` for improved decomposition performance.
 
@@ -91,8 +117,6 @@ The TIMs represent markers for the following tissues:
 - skeletal muscle myoblasts
 - small intestine
 
-Data was retrieved from the [ENCODE](https://www.encodeproject.org/search/?type=Experiment&assay_slims=DNA+methylation&replicates.library.biosample.donor.organism.scientific_name=Homo+sapiens&assay_title=WGBS) and [Blueprint](http://dcc.blueprint-epigenome.eu/#/files) data portals. When available, two biological replicates per tissue were combined into one sample. The TIMs were then calculated on the combined sample.
-
 Please note all data was converted to hg38 and all CpGs are reported as (Chrom, start, end), where the end position indicates the C in the CpG dinucleotide.  
 
 #### Selecting TIMs
@@ -109,11 +133,6 @@ The number of TIMs per tissue can be adjusted, but note that as the number of TI
 
 The **depth filter** only will consider CpGs that have a median depth across all tissues greater than a user specified value. This is to ensure that low-coverage CpGs do not get selected as TIMs. The **NaN filter** will only consider CpGs that have less than a user specified number of missing values. This is to ensure a TIM isn't selected for a tissue because it is one of the few tissues with data at that location. The **number of tims/tissue** can vary. We find that 100 is a good number, and note that as the number of TIMs increase, the lower quality the TIMs will be, since we are selecting the top most informative CpGs/tissue (in other words, the top 100 most informative CpGs for pancreas will by definition, be "better" than the top 500).
 
-For the sample data provided, we suggest:
-
-```bash
-python tim.py sample_input.txt tim.txt 100 19 15 2
-```
 
 #### Combining Reads
 
