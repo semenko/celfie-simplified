@@ -354,14 +354,20 @@ if __name__ == "__main__":
     print(f"finished reading {args.input_path}")
     print()
 
-    output_alpha_file = f"{args.output_directory}/{args.parallel_job_id}_tissue_proportions.txt"
-    output_gamma_file = f"{args.output_directory}/{args.parallel_job_id}_methylation_proportions.txt"
+    output_alpha_file = (
+        f"{args.output_directory}/{args.parallel_job_id}_tissue_proportions.txt"
+    )
+    output_gamma_file = (
+        f"{args.output_directory}/{args.parallel_job_id}_methylation_proportions.txt"
+    )
 
     print(f"beginning generation of {args.output_directory}")
     print()
 
     # make input arrays and add the specified number of unknowns
-    x, x_depths, y, y_depths = define_arrays(data_df, int(args.num_samples), int(args.unknowns))
+    x, x_depths, y, y_depths = define_arrays(
+        data_df, int(args.num_samples), int(args.unknowns)
+    )
 
     # get header for output files
     samples, tissues = get_header(data_df, args.num_samples, args.unknowns)
