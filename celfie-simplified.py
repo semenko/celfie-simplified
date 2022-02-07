@@ -15,8 +15,7 @@ import tqdm
 import numpy as np
 import pandas as pd
 
-np.seterr(divide="ignore", invalid="ignore")
-
+#  np.seterr(divide="ignore", invalid="ignore")
 
 def add_pseudocounts(value, array, meth, meth_depths):
     """finds values of gamma where logll cannot be computed, adds pseudo-counts to make
@@ -27,7 +26,7 @@ def add_pseudocounts(value, array, meth, meth_depths):
     meth: np array of methylation counts
     meth_depths: np array of total number of reads (meth counts + unmethylated counts)
     """
-
+    
     axis0, axis1 = np.where(
         array == value  # find indices where value isn't able to be computed
     )
@@ -157,8 +156,9 @@ def expectation_maximization(
     alpha /= np.sum(alpha, axis=1)[:, np.newaxis]  # make alpha sum to 1
 
     # begin by checking for instances where there are no counts for y or y_depths
-    add_pseudocounts(1, np.nan_to_num(y / y_depths), y, y_depths)
-    add_pseudocounts(0, np.nan_to_num(y / y_depths), y, y_depths)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        add_pseudocounts(1, np.nan_to_num(y / y_depths), y, y_depths)
+        add_pseudocounts(0, np.nan_to_num(y / y_depths), y, y_depths)
 
     # intialize gamma to reference values
     gamma = y / y_depths
