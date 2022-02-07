@@ -1,9 +1,0 @@
-name: celfie
-channels:
-  - defaults
-dependencies:
-  - numpy 
-  - pandas 
-  - bottleneck 
-  - seaborn 
-

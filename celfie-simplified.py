@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 import argparse
 import os
-import pybedtools
 import sys
+import subprocess
+import tqdm
 
+assert sys.version_info >= (3, 7, 9), "This script requires Python 3.7.9 or greater for (subprocess.run features)."
+
+from io import BytesIO
 import numpy as np
 import pandas as pd
 
@@ -180,7 +184,7 @@ def expectation_maximization(
     return alpha, gamma, log_likelihood
 
 
-def define_arrays(sample, num_samples, num_unk):
+def define_arrays(input_bed, tim_matrix_bed, num_unk):
     """
     takes input data matrix- cfDNA and reference, and creates the arrays to run in EM. Adds
     specified number of unknowns to estimate
@@ -191,58 +195,26 @@ def define_arrays(sample, num_samples, num_unk):
     num_unk: number of unknowns to estimate
     """
 
-    test = sample.iloc[:, 3 : (num_samples * 2) + 3].values.T
-    train = sample.iloc[:, (num_samples * 2) + 3 + 3 :].values.T
+    test = input_bed.iloc[:, 3: ].values.T
+    train = tim_matrix_bed.iloc[:, 3:].values.T
 
-    x = test[::2, :]
+    x_df = test[::2, :]
     x_depths = test[1::2, :]
 
-    y = train[::2, :]
+    y_df = train[::2, :]
     y_depths = train[1::2, :]
 
-    # add one unknown component
+    # add N unknown components
     unknown = np.zeros((num_unk, y_depths.shape[1]))
     y_depths_unknown = np.append(y_depths, unknown, axis=0)
-    y_unknown = np.append(y, unknown, axis=0)
+    y_unknown = np.append(y_df, unknown, axis=0)
 
     return (
-        np.nan_to_num(x),
+        np.nan_to_num(x_df),
         np.nan_to_num(x_depths),
         np.nan_to_num(y_unknown),
         np.nan_to_num(y_depths_unknown),
     )
-
-
-def parse_header_names(header):
-    parsed_header = []
-
-    for i in range(0, len(header), 2):
-        parsed_header.append(header[i].split("_")[0])
-
-    return parsed_header
-
-
-def get_header(sample, num_samples, num_unk):
-    """
-    gets the tissue and sample names to be used in generating an interpretable output file
-
-    sample: dataframe of input data- with header
-    num_samples: number of cfDNA samples
-    num_unk: number of unknowns to be estimated
-    """
-
-    header = list(sample)
-
-    samples = parse_header_names(
-        header[3 : (num_samples * 2) + 3]
-    )  # samples are first part of header
-    tissues = parse_header_names(
-        header[(num_samples * 2) + 3 + 3 :]
-    )  # tissues are second part of header
-
-    unknowns = ["unknown" + str(i) for i in range(1, num_unk + 1)]
-
-    return samples, tissues + unknowns
 
 
 def write_output(output_file, output_matrix, header, index):
@@ -262,100 +234,176 @@ def write_output(output_file, output_matrix, header, index):
         0, "", index
     )  # insert either the sample names or cpg numbers as first col
 
-    output.to_csv(output_file, sep="\t", index=False)  # save as text file
+    output.to_csv(output_file, sep="\t", index=False)
 
+def validate_and_return_header_names(name_list):
+    """
+    Ensure an input list of sample / TIM matrix names is valid.
+
+    Returns:
+    sample_names: list of sample or TIM tissue names, e.g.:
+       ['sample1', 'sample2', 'sample3', 'sample4', ...]
+       or
+       ['erythrocyte', 'lymphocyte', 'monocyte', ...]
+    """
+    assert name_list[0] == "chrom"
+
+    # We expect an even # of columns (paired methylation & read data) after the chrom/start/end columns
+    assert (len(name_list)-3) % 2 == 0
+    
+    meth_names = [e[:-5] for e in name_list[3::2]]
+    depth_names = [e[:-6] for e in name_list[4::2]]
+    assert meth_names == depth_names
+
+    return meth_names
 
 def main():
     pass
 
 if __name__ == "__main__":
 
-    # read command line input parameters
     parser = argparse.ArgumentParser(
         description="CelFiE - Cell-free DNA decomposition. CelFie estimates the cell type of origin proportions of a cell-free DNA sample."
     )
-    parser.add_argument("input_bed", help="Your unknown sample(s) .bed file.")
-    parser.add_argument("tim_matrix", help="Your pre-trained tissue informative marker (TIM) matrix .bed.")
-    parser.add_argument("output_prefix", help="An output directory and prefix for your output files.")
-
+    parser.add_argument("--input-bed", required=True, help="Your unknown sample(s) .bed file.")
+    parser.add_argument("--tim-matrix-bed", required=True, help="Your pre-trained tissue informative marker (TIM) matrix .bed.")
+    parser.add_argument("--output-directory", required=True, help="Output directory. Any existing output files will be overwritten.")
     parser.add_argument(
-        "-m",
-        "--max_iterations",
+        "--skip-validation",
+        default=False,
+        action='store_true',
+        help="Don't validate the input BED; this will run `bedtools map` regardless of the input BED contents. Use with caution.",
+    )
+    parser.add_argument(
+        "--max-iterations",
         default=1000,
         type=int,
         help="How long the EM should iterate before stopping, unless convergence criteria is met. Default: 1000.",
     )
     parser.add_argument(
-        "-u",
         "--unknowns",
         default=0,
         type=int,
         help="Number of unknown categories to be estimated along with the reference data. Default: 0.",
     )
     parser.add_argument(
-        "-c",
         "--convergence",
         default=0.0001,
         type=float,
         help="Convergence criteria for EM. Default: 0.0001.",
     )
     parser.add_argument(
-        "-r",
-        "--random_restarts",
+        "--random-restarts",
         default=10,
         type=int,
         help="Perform several random restarts and select the one with the highest log-likelihood. Default: 10.",
     )
 
-    # Print full usage if no flags given.
-    if len(sys.argv) < 2:
-        parser.print_usage()
-        sys.exit(1)
-
     args = parser.parse_args()
 
-    # make output directory if it does not exist
-    if not os.path.exists(args.output_directory):
-        os.makedirs(args.output_directory)
-        print("Writing to: " + args.output_directory + "/")
+    os.makedirs(args.output_directory, exist_ok=True)
+    print("Writing to: " + args.output_directory + "/")
 
+    ## Loosely validate the TIM matrix
+    print(f"Loading TIM matrix: {args.tim_matrix_bed}")
+    tim_matrix_df = pd.read_csv(args.tim_matrix_bed, delim_whitespace=True, header=0)
 
-    print(f"Loading: {args.input_path}")
-    data_df = pd.read_csv(args.input_path, delimiter="\t")
+    # .bed with tab or space after #
+    if tim_matrix_df.columns[0] == "#":
+        tim_cols_shifted = tim_matrix_df.columns[1:]
+        tim_matrix_df = tim_matrix_df[tim_matrix_df.columns[:-1]]
+        tim_matrix_df.columns = tim_cols_shifted
+    tim_entry_names = validate_and_return_header_names(tim_matrix_df.columns)
+    print(f"\tNumber of tissues in TIM matrix: {len(tim_entry_names)}")
 
-    output_alpha_file = (
-        f"{args.output_directory}/tissue_proportions.txt"
-    )
-    output_gamma_file = (
-        f"{args.output_directory}/methylation_proportions.txt"
-    )
+    ## Parse input beds
+    print(f"Loading data: {args.input_bed}")
 
-    print(f"Starting computation...")
+    # Load the input bed, with our without a header
+    with open(args.input_bed, 'r', encoding='utf-8') as input_bed_fh:
+        input_sample_first_line = input_bed_fh.readline()
+        input_sample_has_header = input_sample_first_line.startswith("#")
+        input_sample_second_line = input_bed_fh.readline()
+        input_bed_number_of_sample_columns = len(input_sample_second_line.split("\t")[3:])
+    print(f"\tNumber of samples: {int(input_bed_number_of_sample_columns/2)}")
+
+    USE_HEADER = 0
+    if not input_sample_has_header:
+        print("\tNote: Input sample .bed file does not have a header. Samples will be labeled 'sample1', 'sample2', etc.")
+        USE_HEADER = None
+
+    # Validate the second line of input bed
+    i_chr, i_start, i_end = input_sample_second_line.split("\t")[:3]
+    i_size = int(i_end) - int(i_start)
+    assert i_chr.startswith("chr")
+
+    if args.skip_validation:
+        print("WARNING: Skipping validation of input BED file loci sizes.")
+        print("Results may be odd if run on .bed files without individual CpG methylation count & coverage data.")
+    else:
+        # Validate the second line of input bed
+        # We expect WGBS (or similar) data, with entries of size 1 or 2 basepairs.
+        assert i_size in (1, 2)
+
+    # Run bedtools map to sum features that overlap with the TIM matrix.
+    # This is equivalent to:
+    #  bedtools map -a tim_matrix.bed -b sample.bed -c 4,5 -null 0 | cut -f 1-3,{bed_columns}-
+    print("Running bedtools map...")
+    print("\tThis computes the sum of the features (both # methylated reads and # total reads) in the sample that overlap with the TIM matrix.")
+
+    # Unfortuantely, we can't use pybedtools here, because it tries to be too smart and will mis-interpret
+    # long pseudo-.bed files as .sam files, which results in nebulous errors (see: https://github.com/daler/pybedtools/issues/363)
+    # Instead, we spawn a subprocess to run bedtools map:
+
+    # We only want the first three columns (chrom, start, end)
+    cut_command = f"cut -f1-3 {args.tim_matrix_bed}".split()
+    cut_job = subprocess.run(cut_command, check=True, stdout=subprocess.PIPE)
+
+    # Sum of all sample columns (4,5,6,...) for `bedtools map`
+    COLUMNS_TO_SUM = str(list(range(4, 4+input_bed_number_of_sample_columns))).replace(' ', '')[1:-1]
+    bedtools_command = f"bedtools map -a stdin -b {args.input_bed} -c {COLUMNS_TO_SUM} -null 0".split()
+    bedtools_job = subprocess.run(bedtools_command, check=True, input=cut_job.stdout, capture_output=True)
+
+    # Load the bedtools output (a .bed) as a pandas dataframe
+    mapped_bed_df = pd.read_csv(BytesIO(bedtools_job.stdout), delim_whitespace=True, header=USE_HEADER)
+
+    if USE_HEADER:
+        sample_names = validate_and_return_header_names(mapped_bed_df.columns)
+    else:
+        sample_names = ['sample' + str(e) for e in range(1, input_bed_number_of_sample_columns)]
+
+    print(mapped_bed_df)
+
+    # Same number of rows in both (each row is one TIM matrix entry)
+    assert mapped_bed_df.shape[0] == tim_matrix_df.shape[0]
+    assert mapped_bed_df.shape[1] == len(sample_names * 2) + 3
+
 
     # make input arrays and add the specified number of unknowns
-    x, x_depths, y, y_depths = define_arrays(
-        data_df, int(args.num_samples), int(args.unknowns)
-    )
+    x, x_depths, y, y_depths = define_arrays(mapped_bed_df, tim_matrix_df, args.unknowns)
 
-    # get header for output files
-    samples, tissues = get_header(data_df, args.num_samples, args.unknowns)
+    print("Starting computation...")
 
     # Run EM with the specified iterations and convergence criteria
     random_restarts = []
 
-    for i in range(args.random_restarts):
+    for i in tqdm.trange(args.random_restarts):
         alpha, gamma, ll = expectation_maximization(
             x, x_depths, y, y_depths, args.max_iterations, args.convergence
         )
         random_restarts.append((ll, alpha, gamma))
 
-    ll_max, alpha_max, gamma_max = max(
-        random_restarts
-    )  # pick best random restart per replicate
+    # pick best random restart per replicate
+    ll_max, alpha_max, gamma_max = max(random_restarts)  
 
-    # write estimates as text files
-    write_output(output_alpha_file, alpha_max, tissues, samples)
-    write_output(
-        output_gamma_file, gamma_max.T, tissues, list(range(len(gamma_max[1])))
-    )
-    print("Done.")
+
+    # get header for output files
+    # N: samples here was: [nonpreg1, nonpreg2...] 
+    # tissues was: [dentricit, epithel...]
+
+    # Save our results.
+    write_output(f"{args.output_directory}/tissue_proportions.txt", alpha_max, tim_entry_names, sample_names)
+    write_output(f"{args.output_directory}/methylation_proportions.txt", gamma_max.T, tim_entry_names, list(range(len(gamma_max[1]))))
+
+    print("Done!")
+    print(f"\tResult saved to: {os.getcwd()}/{args.output_directory}")
