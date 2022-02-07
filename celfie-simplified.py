@@ -26,7 +26,6 @@ def add_pseudocounts(value, array, meth, meth_depths):
     meth: np array of methylation counts
     meth_depths: np array of total number of reads (meth counts + unmethylated counts)
     """
-    
     axis0, axis1 = np.where(
         array == value  # find indices where value isn't able to be computed
     )
@@ -115,7 +114,6 @@ def maximization(p0, p1, x, x_depths, y, y_depths):
     term1 = 0
 
     for n in range(individuals):
-
         new_alpha[n, :] = np.dot(p1[:, :, n], x[n, :]) + np.matmul(
             p0[:, :, n], (x_depths[n, :] - x[n, :])
         )
@@ -167,19 +165,19 @@ def expectation_maximization(
     for _ in range(num_iterations):
 
         p0, p1 = expectation(gamma, alpha)
-        a, g = maximization(p0, p1, x, x_depths, y, y_depths)
+        loop_a, loop_g = maximization(p0, p1, x, x_depths, y, y_depths)
 
         # check convergence of alpha and gamma
-        alpha_diff = np.mean(abs(a - alpha)) / np.mean(abs(alpha))
-        gamma_diff = np.mean(abs(g - gamma)) / np.mean(abs(gamma))
+        alpha_diff = np.mean(abs(loop_a - alpha)) / np.mean(abs(alpha))
+        gamma_diff = np.mean(abs(loop_g - gamma)) / np.mean(abs(gamma))
 
         if (
             alpha_diff + gamma_diff < convergence_criteria
         ):  # if convergence criteria, break
             break
         # set current evaluation of alpha and gamma
-        alpha = a
-        gamma = g
+        alpha = loop_a
+        gamma = loop_g
 
     # print ll for random restarts
     log_likelihood = compute_log_likelihood(
@@ -296,12 +294,12 @@ def main(parsedargs):
         )
     print(f"\tNumber of samples: {int(input_bed_number_of_sample_columns/2)}")
 
-    USE_HEADER = 0
+    use_header = 0
     if not input_sample_has_header:
         print(
             "\tNote: Input sample .bed file does not have a header. Samples will be labeled 'sample1', 'sample2', etc."
         )
-        USE_HEADER = None
+        use_header = None
 
     # Validate the second line of input bed
     i_chr, i_start, i_end = input_sample_second_line.split("\t")[:3]
@@ -335,11 +333,11 @@ def main(parsedargs):
     cut_job = subprocess.run(cut_command, check=True, stdout=subprocess.PIPE)
 
     # Sum of all sample columns (4,5,6,...) for `bedtools map`
-    COLUMNS_TO_SUM = str(
+    columns_to_sum = str(
         list(range(4, 4 + input_bed_number_of_sample_columns))
     ).replace(" ", "")[1:-1]
     bedtools_command = (
-        f"bedtools map -a stdin -b {parsedargs.input_bed} -c {COLUMNS_TO_SUM} -null 0".split()
+        f"bedtools map -a stdin -b {parsedargs.input_bed} -c {columns_to_sum} -null 0".split()
     )
     bedtools_job = subprocess.run(
         bedtools_command, check=True, input=cut_job.stdout, capture_output=True
@@ -347,10 +345,10 @@ def main(parsedargs):
 
     # Load the bedtools output (a .bed) as a pandas dataframe
     mapped_bed_df = pd.read_csv(
-        BytesIO(bedtools_job.stdout), delim_whitespace=True, header=USE_HEADER
+        BytesIO(bedtools_job.stdout), delim_whitespace=True, header=use_header
     )
 
-    if USE_HEADER:
+    if use_header:
         sample_names = validate_and_return_header_names(mapped_bed_df.columns)
     else:
         sample_names = [
