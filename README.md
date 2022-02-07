@@ -42,9 +42,9 @@ chr1	60    61	89	115
 
 **Note:** Your sample .bed does not need a header. If you do not provide one, samples will be named "sample1, sample2 …". If you provide one, it **must** start with #, and your sample names must be formatted as "Tissue_name_meth" and "Tissue_name_depth". You can include more than one tissue (e.g. columns 5 and 6 can be tissue2_meth and tissue2_depth).
 
-**Note**: Many analyses generate % methylation values — you can convert from percent to absolute counts awk:
+**Note**: Many analyses generate % methylation values — you can convert from percent to absolute counts using:
 ```
-XXXX
+awk 'BEGIN{OFS="\t"}{ print $1, $2, $3, int($4 * $5 + 0.5), int($5) }'
 ```
 
 ## TIM Matrix Format

@@ -3,7 +3,7 @@ import argparse
 import os
 import sys
 import subprocess
-import tqdm
+from io import BytesIO
 
 assert sys.version_info >= (
     3,
@@ -11,7 +11,7 @@ assert sys.version_info >= (
     9,
 ), "This script requires Python 3.7.9 or greater for (subprocess.run features)."
 
-from io import BytesIO
+import tqdm
 import numpy as np
 import pandas as pd
 
@@ -68,8 +68,6 @@ def compute_log_likelihood(p0, p1, x_depths, x, y_depths, y, gamma, alpha):
     gamma: estimated true methylation proportions
     alpha: estimated mixing proportions
     """
-
-    tissues, sites, individuals = p0.shape[0], p0.shape[1], p0.shape[2]
 
     # Reshape arrays for faster computation
     alpha = alpha.T[:, np.newaxis, :]
@@ -179,10 +177,9 @@ def expectation_maximization(
             alpha_diff + gamma_diff < convergence_criteria
         ):  # if convergence criteria, break
             break
-        else:
-            # set current evaluation of alpha and gamma
-            alpha = a
-            gamma = g
+        # set current evaluation of alpha and gamma
+        alpha = a
+        gamma = g
 
     # print ll for random restarts
     log_likelihood = compute_log_likelihood(
@@ -267,16 +264,16 @@ def validate_and_return_header_names(name_list):
     return meth_names
 
 
-def main(args):
+def main(parsedargs):
     """
     Main function for running the EM algorithm.
     """
-    os.makedirs(args.output_directory, exist_ok=True)
-    print("Writing to: " + args.output_directory + "/")
+    os.makedirs(parsedargs.output_directory, exist_ok=True)
+    print("Writing to: " + parsedargs.output_directory + "/")
 
     ## Loosely validate the TIM matrix
-    print(f"Loading TIM matrix: {args.tim_matrix_bed}")
-    tim_matrix_df = pd.read_csv(args.tim_matrix_bed, delim_whitespace=True, header=0)
+    print(f"Loading TIM matrix: {parsedargs.tim_matrix_bed}")
+    tim_matrix_df = pd.read_csv(parsedargs.tim_matrix_bed, delim_whitespace=True, header=0)
 
     # .bed with tab or space after #
     if tim_matrix_df.columns[0] == "#":
@@ -287,10 +284,10 @@ def main(args):
     print(f"\tNumber of tissues in TIM matrix: {len(tim_entry_names)}")
 
     ## Parse input beds
-    print(f"Loading data: {args.input_bed}")
+    print(f"Loading data: {parsedargs.input_bed}")
 
     # Load the input bed, with our without a header
-    with open(args.input_bed, "r", encoding="utf-8") as input_bed_fh:
+    with open(parsedargs.input_bed, "r", encoding="utf-8") as input_bed_fh:
         input_sample_first_line = input_bed_fh.readline()
         input_sample_has_header = input_sample_first_line.startswith("#")
         input_sample_second_line = input_bed_fh.readline()
@@ -311,7 +308,7 @@ def main(args):
     i_size = int(i_end) - int(i_start)
     assert i_chr.startswith("chr")
 
-    if args.skip_validation:
+    if parsedargs.skip_validation:
         print("WARNING: Skipping validation of input BED file loci sizes.")
         print(
             "Results may be odd if run on .bed files without individual CpG methylation count & coverage data."
@@ -334,7 +331,7 @@ def main(args):
     # Instead, we spawn a subprocess to run bedtools map:
 
     # We only want the first three columns (chrom, start, end)
-    cut_command = f"cut -f1-3 {args.tim_matrix_bed}".split()
+    cut_command = f"cut -f1-3 {parsedargs.tim_matrix_bed}".split()
     cut_job = subprocess.run(cut_command, check=True, stdout=subprocess.PIPE)
 
     # Sum of all sample columns (4,5,6,...) for `bedtools map`
@@ -342,7 +339,7 @@ def main(args):
         list(range(4, 4 + input_bed_number_of_sample_columns))
     ).replace(" ", "")[1:-1]
     bedtools_command = (
-        f"bedtools map -a stdin -b {args.input_bed} -c {COLUMNS_TO_SUM} -null 0".split()
+        f"bedtools map -a stdin -b {parsedargs.input_bed} -c {COLUMNS_TO_SUM} -null 0".split()
     )
     bedtools_job = subprocess.run(
         bedtools_command, check=True, input=cut_job.stdout, capture_output=True
@@ -366,7 +363,7 @@ def main(args):
 
     # make input arrays and add the specified number of unknowns
     x, x_depths, y, y_depths = define_arrays(
-        mapped_bed_df, tim_matrix_df, args.unknowns
+        mapped_bed_df, tim_matrix_df, parsedargs.unknowns
     )
 
     print("Starting computation...")
@@ -374,14 +371,14 @@ def main(args):
     # Run EM with the specified iterations and convergence criteria
     random_restarts = []
 
-    for i in tqdm.trange(args.random_restarts):
+    for _ in tqdm.trange(parsedargs.random_restarts):
         alpha, gamma, ll = expectation_maximization(
-            x, x_depths, y, y_depths, args.max_iterations, args.convergence
+            x, x_depths, y, y_depths, parsedargs.max_iterations, parsedargs.convergence
         )
         random_restarts.append((ll, alpha, gamma))
 
     # pick best random restart per replicate
-    ll_max, alpha_max, gamma_max = max(random_restarts)
+    _, alpha_max, gamma_max = max(random_restarts)
 
     # get header for output files
     # N: samples here was: [nonpreg1, nonpreg2...]
@@ -389,20 +386,20 @@ def main(args):
 
     # Save our results.
     write_output(
-        f"{args.output_directory}/tissue_proportions.txt",
+        f"{parsedargs.output_directory}/tissue_proportions.txt",
         alpha_max,
         tim_entry_names,
         sample_names,
     )
     write_output(
-        f"{args.output_directory}/methylation_proportions.txt",
+        f"{parsedargs.output_directory}/methylation_proportions.txt",
         gamma_max.T,
         tim_entry_names,
         list(range(len(gamma_max[1]))),
     )
 
     print("Done!")
-    print(f"\tResult saved to: {os.getcwd()}/{args.output_directory}")
+    print(f"\tResult saved to: {os.getcwd()}/{parsedargs.output_directory}")
 
 
 if __name__ == "__main__":
@@ -454,6 +451,4 @@ if __name__ == "__main__":
         help="Perform several random restarts and select the one with the highest log-likelihood. Default: 10.",
     )
 
-    args = parser.parse_args()
-
-    main(args)
+    main(parser.parse_args())

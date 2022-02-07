@@ -3,4 +3,4 @@ repos:
     rev: v2.12.2
     hooks:
     -   id: pylint
-    
+        args: [--max-line-length=150, --reports=n, --fail-under=6]
