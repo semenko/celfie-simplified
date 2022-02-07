@@ -257,50 +257,10 @@ def validate_and_return_header_names(name_list):
 
     return meth_names
 
-def main():
-    pass
-
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(
-        description="CelFiE - Cell-free DNA decomposition. CelFie estimates the cell type of origin proportions of a cell-free DNA sample."
-    )
-    parser.add_argument("--input-bed", required=True, help="Your unknown sample(s) .bed file.")
-    parser.add_argument("--tim-matrix-bed", required=True, help="Your pre-trained tissue informative marker (TIM) matrix .bed.")
-    parser.add_argument("--output-directory", required=True, help="Output directory. Any existing output files will be overwritten.")
-    parser.add_argument(
-        "--skip-validation",
-        default=False,
-        action='store_true',
-        help="Don't validate the input BED; this will run `bedtools map` regardless of the input BED contents. Use with caution.",
-    )
-    parser.add_argument(
-        "--max-iterations",
-        default=1000,
-        type=int,
-        help="How long the EM should iterate before stopping, unless convergence criteria is met. Default: 1000.",
-    )
-    parser.add_argument(
-        "--unknowns",
-        default=0,
-        type=int,
-        help="Number of unknown categories to be estimated along with the reference data. Default: 0.",
-    )
-    parser.add_argument(
-        "--convergence",
-        default=0.0001,
-        type=float,
-        help="Convergence criteria for EM. Default: 0.0001.",
-    )
-    parser.add_argument(
-        "--random-restarts",
-        default=10,
-        type=int,
-        help="Perform several random restarts and select the one with the highest log-likelihood. Default: 10.",
-    )
-
-    args = parser.parse_args()
-
+def main(args):
+    """
+    Main function for running the EM algorithm.
+    """
     os.makedirs(args.output_directory, exist_ok=True)
     print("Writing to: " + args.output_directory + "/")
 
@@ -372,12 +332,9 @@ if __name__ == "__main__":
     else:
         sample_names = ['sample' + str(e) for e in range(1, input_bed_number_of_sample_columns)]
 
-    print(mapped_bed_df)
-
     # Same number of rows in both (each row is one TIM matrix entry)
     assert mapped_bed_df.shape[0] == tim_matrix_df.shape[0]
     assert mapped_bed_df.shape[1] == len(sample_names * 2) + 3
-
 
     # make input arrays and add the specified number of unknowns
     x, x_depths, y, y_depths = define_arrays(mapped_bed_df, tim_matrix_df, args.unknowns)
@@ -407,3 +364,47 @@ if __name__ == "__main__":
 
     print("Done!")
     print(f"\tResult saved to: {os.getcwd()}/{args.output_directory}")
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(
+        description="CelFiE - Cell-free DNA decomposition. CelFie estimates the cell type of origin proportions of a cell-free DNA sample."
+    )
+    parser.add_argument("--input-bed", required=True, help="Your unknown sample(s) .bed file.")
+    parser.add_argument("--tim-matrix-bed", required=True, help="Your pre-trained tissue informative marker (TIM) matrix .bed.")
+    parser.add_argument("--output-directory", required=True, help="Output directory. Any existing output files will be overwritten.")
+    parser.add_argument(
+        "--skip-validation",
+        default=False,
+        action='store_true',
+        help="Don't validate the input BED; this will run `bedtools map` regardless of the input BED contents. Use with caution.",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        default=1000,
+        type=int,
+        help="How long the EM should iterate before stopping, unless convergence criteria is met. Default: 1000.",
+    )
+    parser.add_argument(
+        "--unknowns",
+        default=0,
+        type=int,
+        help="Number of unknown categories to be estimated along with the reference data. Default: 0.",
+    )
+    parser.add_argument(
+        "--convergence",
+        default=0.0001,
+        type=float,
+        help="Convergence criteria for EM. Default: 0.0001.",
+    )
+    parser.add_argument(
+        "--random-restarts",
+        default=10,
+        type=int,
+        help="Perform several random restarts and select the one with the highest log-likelihood. Default: 10.",
+    )
+
+    args = parser.parse_args()
+
+    main(args)
