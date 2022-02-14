@@ -9,7 +9,7 @@
 
 An opinionated rework of the CelFiE project (original repository [here](https://github.com/christacaggiano/celfie)). Note that this project simply reworks CelFiE to make it more Pythonic / reproducible and accept standard (.bed) inputs.
 
-The goal of this code is to predict fractional tissue abundance from a mixed population of cells, using cell free methylation data. You likely need to build your own reference matrix, detailed below, though the original is available for reference.
+The goal of this code is to predict fractional tissue abundance from a mixed population of cells, using cell free methylation data. You likely need to build your own reference matrix (here called a "TIM" matrix, detailed below) though the original is available for reference.
 
 ## Usage
 
@@ -40,16 +40,16 @@ chr1	50    51	71	133
 chr1	60    61	89	115
 ```
 
-**Note:** Your sample .bed does not need a header. If you do not provide one, samples will be named "sample1, sample2 …". If you provide one, it **must** start with #, and your sample names must be formatted as "Tissue_name_meth" and "Tissue_name_depth". You can include more than one tissue (e.g. columns 5 and 6 can be tissue2_meth and tissue2_depth).
+**Note:** Your sample .bed does not need a header. Without a header, samples will be named "sample1, sample2 …". If you provide a header, it **must** start with #, and your sample names must be formatted as "Tissue_name_meth" and "Tissue_name_depth". You can include more than one tissue (e.g. columns 5 and 6 can be tissue2_meth and tissue2_depth).
 
 **Note**: Many analyses generate % methylation values — you can convert from percent to absolute counts using:
 ```
 awk 'BEGIN{OFS="\t"}{ print $1, $2, $3, int($4 * $5 + 0.5), int($5) }'
 ```
 
-## TIM Matrix Format
+## Reference Matrix (TIM) Format
 
-CelFiE expects tissue informative markers (TIMs) in a .bed file with a header the following format:
+CelFiE expects a reference matrix of tissue informative markers (TIMs) in a .bed file with a header the following format:
 
 ```
 # chrom start  end      tissue1_meth      tissue1_depth     tissue2_meth      tissue2_depth
@@ -58,14 +58,14 @@ chr1	50	51	85	99    72	285
 chr1	60	61	92	117   12	33
 ```
 
-**Note:** Here, the .bed header is not optional, as CelFiE needs to have valid tissue names for assignments and subsequent plotting.
+**Note:** Here, a .bed header is **required**, as CelFiE needs to have valid tissue names for assignments and subsequent plotting.
 
 As a reference, you can use the TIM matrix from the [original CelFiE paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5270101/), which is in `data/caggiano_TIM_matrix.bed`, but this matrix has some caveats (see below).
 
 
 ### Outputs
 
-Output formatting is unchanged from the original CelFiE code. CelFiE outputs tissue estimates for each sample in your input — - i.e. the proportion of each tissue in the reference making up the cfDNA sample. See `celfie_demo/sample_output/1_tissue_proportions.txt` for an example of this output.
+Output formatting is unchanged from the original CelFiE code. CelFiE outputs tissue estimates for each sample in your input — i.e. the proportion of each tissue in the reference making up the cfDNA sample. See `celfie_demo/sample_output/1_tissue_proportions.txt` for an example of this output.
 
 ```
         tissue1 tissue2 .... unknown
@@ -134,28 +134,8 @@ The number of TIMs per tissue can be adjusted, but note that as the number of TI
 The **depth filter** only will consider CpGs that have a median depth across all tissues greater than a user specified value. This is to ensure that low-coverage CpGs do not get selected as TIMs. The **NaN filter** will only consider CpGs that have less than a user specified number of missing values. This is to ensure a TIM isn't selected for a tissue because it is one of the few tissues with data at that location. The **number of tims/tissue** can vary. We find that 100 is a good number, and note that as the number of TIMs increase, the lower quality the TIMs will be, since we are selecting the top most informative CpGs/tissue (in other words, the top 100 most informative CpGs for pancreas will by definition, be "better" than the top 500).
 
 
-#### Combining Reads
 
-In our paper, we found that summing all reads +/-250bp offered improved performance when decomposing. To do this for TIMs generated as output of `tim.py`, we provide a shell script `TIMs/tim.sh` to call TIMs and sum data.
+## Citations
 
-This script can be updated to change the following parameters:
-
-```bash
-input_file=sample_input.txt
-output_file=sample_tims.txt
-summed_file=sample_tims_summed.txt
-sum_window_size=500
-number_tims=100
-number_tissues=19
-depth_filter=15
-na_filter=2
-```
-
-The pipeline can then be ran as
-```bash
-./tim.sh
-```
-
-## Citation
 
 Christa Caggiano, Barbara Celona, Fleur Garton, Joel Mefford, Brian Black, Catherine Lomen-Hoerth, Andrew Dahl, Noah Zaitlen, *"Comprehensive cell type decomposition of circulating cell-free DNA with CelFiE"*, Nature Communications, May 2021 [link](https://www.nature.com/articles/s41467-021-22901-x)
